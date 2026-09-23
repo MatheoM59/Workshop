@@ -5,7 +5,7 @@ import type { Users } from "../type";
 export const List = async () => {
   const clients  =  await query<Users>("SElECT * FROM users ");
 
-  const patients = clients.filter((c) => c.health_status === "QUARANTINE");
+  const patients = clients.filter((c) => c.health_status === "QUARANTINE" || c.health_status === "SICK");
   const patientsLogement = patients.map((p) => p.room_id);
   const contact = clients.filter((c) => c.health_status === "CONTACT" || c.health_status !== "SICK" &&
     c.health_status !== "QUARANTINE" &&
@@ -15,16 +15,11 @@ export const List = async () => {
     <section className="flex flex-col gap-6">
 
       <ul className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4">
-        <div className=" flex items-center gap-3">
-          <span
-            className={"rounded px-2.5 py-1 text-xs font-semibold tracking-wide "}
-          >
 
-          </span>
-          <span className="text-sm text-slate-500">
-            {patients.length} patient{patients.length > 1 ? "s" : ""}
-          </span>
-        </div>
+        <span className="text-sm text-slate-500">
+          {patients.length} patient{patients.length > 1 ? "s" : ""}
+        </span>
+
         {patients.map((client) => (
           <li
             key={client.id}
@@ -57,16 +52,10 @@ export const List = async () => {
         ))}
       </ul>
       <ul className="flex flex-col gap-3 rounded-xl bg-slate-50 p-4">
-        <div className=" flex items-center gap-3">
-          <span
-            className={"rounded px-2.5 py-1 text-xs font-semibold tracking-wide "}
-          >
 
-          </span>
-          <span className="text-sm text-slate-500">
-            {contact.length} patient{patients.length > 1 ? "s" : ""}
-          </span>
-        </div>
+        <span className="text-sm text-slate-500">
+          {contact.length} patient{patients.length > 1 ? "s" : ""}
+        </span>
         {contact.map((client) => (
           <li
             key={client.id}
