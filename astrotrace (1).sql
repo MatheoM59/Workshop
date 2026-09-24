@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Hôte : localhost:3306
--- Généré le : mar. 22 sep. 2026 à 08:52
+-- Généré le : mar. 22 sep. 2026 à 11:35
 -- Version du serveur : 11.8.6-MariaDB-0+deb13u1 from Debian
 -- Version de PHP : 8.4.24
 
@@ -32,16 +32,16 @@ CREATE TABLE `gates` (
   `name` varchar(100) NOT NULL,
   `sector` varchar(50) NOT NULL,
   `sector_from` varchar(50) NOT NULL,
-  `is_locked` tinyint(1) DEFAULT 0
+  `is_locked` tinyint(1) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- Déchargement des données de la table `gates`
 --
 
-INSERT INTO `gates` (`id`, `name`, `sector`, `sector_from`, `sector_to`, `is_locked`) VALUES
+INSERT INTO `gates` (`id`, `name`, `sector`, `sector_from`, `is_locked`) VALUES
 ('GATE_A1', 'Porte Passerelle', 'Secteur A', '', 0),
-('GATE_B2', 'Porte Mess / Vie', 'Secteur B', '', , 0),
+('GATE_B2', 'Porte Mess / Vie', 'Secteur B', '', 0),
 ('GATE_C1', 'Porte Serre Hydroponique', 'Secteur C', '', 0),
 ('GATE_MED', 'Porte MedBox', 'Secteur Médical', '', 0);
 
@@ -119,10 +119,10 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `firstname`, `lastname`, `role`, `health_status`, `disease_name`, `crit_score`, `room_id`, `updated_at`) VALUES
-(1, 'John', 'Doe', 'Commandant', 'NORMAL', NULL, NULL, 1, '2026-09-22 08:20:11'),
 (2, 'Elena', 'Rostova', 'Ingénieure', 'NORMAL', NULL, NULL, 2, '2026-09-22 08:20:11'),
 (3, 'Romain', 'Blauwblomme', 'Pilote', 'NORMAL', NULL, NULL, 10, '2026-09-22 08:20:11'),
-(4, 'Sarah', 'Connor', 'Médecin', 'NORMAL', NULL, NULL, 15, '2026-09-22 08:20:11');
+(4, 'Sarah', 'Connor', 'Médecin', 'NORMAL', NULL, NULL, 15, '2026-09-22 08:20:11'),
+(6, 'John', 'Doe', 'Commandant', 'NORMAL', NULL, NULL, 1, '2026-09-22 09:05:04');
 
 -- --------------------------------------------------------
 
@@ -206,7 +206,7 @@ ALTER TABLE `quarantine_assignments`
 -- AUTO_INCREMENT pour la table `users`
 --
 ALTER TABLE `users`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
 
 --
 -- AUTO_INCREMENT pour la table `vitals_history`
