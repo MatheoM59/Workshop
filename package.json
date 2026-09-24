@@ -9,10 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "lucide-react": "^1.47.0",
     "mysql2": "^3.24.4",
+    "net": "^1.0.2",
     "next": "16.3.5",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tls": "^0.0.1"
   },
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.10.0",
