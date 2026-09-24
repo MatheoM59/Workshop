@@ -1,47 +1,24 @@
-/*export type Users = {
-  id : number;
-  firstname : string;
-  lastname:string;
-  role:string;
-  health_status:string;
-  disease_name: string | null;
-  crit_score: number | null;
-  room_id:number;
-  updated_at:Date;
-
-};
-<<<<<<< HEAD
-*/
-
-// types.ts
+/** Les quatre valeurs de l'enum `users.health_status` en base. */
+export type HealthStatus = "NORMAL" | "CONTACT" | "SICK" | "QUARANTINE";
 
 export type Users = {
   id: number;
   firstname: string;
   lastname: string;
   role: string;
-  health_status: string;
+  health_status: HealthStatus;
   disease_name: string | null;
   crit_score: number | null;
   room_id: number;
   updated_at: Date;
 };
 
-export type SectorData = {
-  id: string;
-  name: string;
-  code: string;
-  description: string;
-  people: Users[]; // Utilise ton type Users ici
-};
-=======
-
 export type Gates = {
   id: string;
   name:string;
   sector: string;
   sector_from:string;
-  is_locked: boolean;
+  is_Q: boolean;
 };
 
 export type Gate_logs = {
@@ -58,7 +35,7 @@ export type Position = {
   firstname : string;
   lastname:string;
   role:string;
-  health_status:string;
+  health_status: HealthStatus;
   disease_name: string | null;
   crit_score: number | null;
   room_id:number;
@@ -68,4 +45,3 @@ export type Position = {
   direction : "IN" | "OUT" | null;
   passed_at: Date | null;
 };
->>>>>>> 56a20bef77be5bcf61677ceaafbcd074fc9dae4c

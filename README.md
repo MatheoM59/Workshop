@@ -101,19 +101,22 @@ npm run build   # build de production
 
 ```
 app/
-  page.tsx              Page d'accueil : assemble les deux vues
+  page.tsx              Point d'entrée : charge les données, assemble les vues
   layout.tsx            Layout racine (polices, structure HTML)
   globals.css           Styles globaux et import Tailwind
   type.ts               Types TypeScript reflétant le schéma SQL
   components/
-    HeaderSection.tsx   En-tête réutilisable (titre + sous-titre)
-    List.tsx            Vue triage : patients et cas contacts
-    SectorManage.tsx    Vue secteurs : boucle sur les portes
-    Sector.tsx          Carte d'un secteur et de ses occupants
+    DashboardClient.tsx En-tête + bascule d'ouverture du module de simulation
+    Simulation.tsx      Simulateur : statut sanitaire et passage de portail
+    HeaderSection.tsx   En-tête de section réutilisable (titre + sous-titre)
+    List.tsx            Vue triage : malades, quarantaine, contacts, citoyens
+    SectorManage.tsx    Vue secteurs : grille des portes, gère la sélection
+    SectorSoft.tsx      Vignette d'un secteur dans la grille
+    Sector.tsx          Vue détaillée d'un secteur et de ses occupants
 lib/
   db.ts                 Connexion MySQL et helper de requête
   action.ts             Server Actions : lecture et écriture
-astrotrace.sql      Dump de la structure et des données
+astrotrace.sql          Dump de la structure et des données
 ```
 
 ## Schéma de la base
@@ -123,14 +126,20 @@ Six tables, dont quatre utilisées par l'application à ce stade.
 | Table | Rôle |
 | --- | --- |
 | `users` | L'équipage. Identité, rôle à bord, état de santé, pathologie, score de criticité, chambre. |
-| `gates` | Les portes du vaisseau. Chaque porte mène vers un `sector` et vient d'un `sector_from`. |
+| `gates` | Les portes du vaisseau. Chaque porte mène vers un `sector` et vient d'un `sector_from`. Le drapeau `is_Q` marque les portes des zones de quarantaine. |
 | `gate_logs` | Historique des passages : qui, quelle porte, quel sens, quand, accès accordé ou refusé. |
 | `quarantine_zones` | Zones d'isolement disponibles, avec leur capacité. |
 | `quarantine_assignments` | Affectation d'un membre à une zone d'isolement. |
 | `vitals_history` | Relevés de constantes (rythme cardiaque, SpO₂, température) pris aux portes. |
 
-La colonne `users.health_status` est une énumération à quatre valeurs : `NORMAL`, `CONTACT`, `SICK`, `QUARANTINE`. 
-## SICK est une personne malade qui n'est pas encore mise en quarantaine.
+La colonne `users.health_status` est une énumération à quatre valeurs, reprise côté TypeScript par le type `HealthStatus` :
+
+| Statut | Signification |
+| --- | --- |
+| `NORMAL` | Aucun signe, aucune exposition connue. |
+| `CONTACT` | Exposé à un malade, sans symptôme déclaré. |
+| `SICK` | Malade, pas encore placé en isolement. |
+| `QUARANTINE` | Malade et confiné en zone d'isolement. |
 
 **Point clé du modèle : la position d'un membre d'équipage n'est stockée nulle part.** Elle se déduit de son dernier passage de porte dans `gate_logs`, en remontant au secteur de la porte franchie.
 
@@ -156,14 +165,39 @@ Fichier marqué `"use server"` : ses exports sont des **Server Actions**, des fo
 
 **`marquerTraite(status, id)`** — met à jour l'état de santé d'un membre d'équipage.
 
-Appelée par le bouton « Patient traité » de la liste de triage. Après l'écriture, `revalidatePath("/")` demande à Next de rejouer les requêtes de la page et de renvoyer un rendu à jour — la liste se met à jour sans code de synchronisation côté navigateur.
+Appelée par les boutons de la liste de triage et par le module de simulation. Après l'écriture, `revalidatePath("/")` demande à Next de rejouer les requêtes de la page et de renvoyer un rendu à jour — l'interface se met à jour sans code de synchronisation côté navigateur.
+
+Si le nouveau statut est `SICK`, la fonction déclenche la propagation des cas contacts dans le secteur où se trouve l'agent.
+
+**`enregistrerPassageGate(userId, sector, accessGranted)`** — journalise un passage de portail.
+
+Écrit une ligne dans `gate_logs`, que l'accès ait été accordé ou refusé : un refus reste une trace exploitable pour l'audit. Un passage autorisé déclenche ensuite la propagation des cas contacts dans le secteur d'arrivée.
+
+**`propagerContact(gateId)`** — applique la règle de contamination sur un secteur. Fonction interne, non exportée.
+
+Elle vérifie d'abord qu'un malade s'y trouve, puis fait passer en `CONTACT` tous les occupants encore `NORMAL`. L'occupation se déduit du dernier passage de chacun, comme dans `getPositions`.
+
+```sql
+UPDATE users u
+JOIN gate_logs l ON l.id = (
+  SELECT id FROM gate_logs
+  WHERE user_id = u.id AND access_granted = 1
+  ORDER BY passed_at DESC, id DESC LIMIT 1
+)
+SET u.health_status = 'CONTACT'
+WHERE l.gate_id = ? AND u.health_status = 'NORMAL'
+```
+
+La jointure porte sur `gate_logs` et non sur `users` : MySQL refuse un `UPDATE` sur une table citée dans une sous-requête du même ordre (erreur 1093).
+
+**`derniereGate(userId)`** — renvoie la dernière porte franchie par un agent, ou `null`. Fonction interne, utilisée par `marquerTraite` pour savoir quel secteur contaminer.
 
 **`getPositions()`** — renvoie tout l'équipage avec sa position courante.
 
 C'est la requête centrale du projet. Pour chaque membre, une sous-requête corrélée isole son **dernier** passage de porte autorisé, puis une jointure sur `gates` remonte le secteur correspondant.
 
 ```sql
-SELECT u.*, g.sector, g.sector_from, l.direction, l.passed_at
+SELECT u.*, g.sector, g.sector_from, l.passed_at
 FROM users u
 LEFT JOIN gate_logs l ON l.id = (
   SELECT id FROM gate_logs
@@ -186,18 +220,41 @@ Le filtre `access_granted = 1` ignore les passages refusés : une tentative bloq
 
 | Type | Correspond à |
 | --- | --- |
+| `HealthStatus` | Les quatre valeurs de l'enum `users.health_status` |
 | `Users` | Une ligne de la table `users` |
 | `Gates` | Une ligne de la table `gates` |
 | `Gate_logs` | Une ligne de la table `gate_logs` |
 | `Position` | Le résultat de `getPositions()` : un `Users` enrichi du secteur et du dernier passage |
 
+`HealthStatus` est une union de littéraux plutôt qu'un `string`. TypeScript rejette ainsi une valeur mal orthographiée — une comparaison à `"Quarantine"` au lieu de `"QUARANTINE"` échoue à la compilation, alors qu'elle produirait silencieusement un résultat faux avec un `string`.
+
 ## Composants
 
-Tous les composants sont des **Server Components** : ils s'exécutent sur le serveur et peuvent interroger la base directement, sans passer par une API HTTP intermédiaire. Les identifiants de connexion et le SQL ne sont jamais envoyés au navigateur.
+Les composants sont des **Server Components** par défaut : ils s'exécutent sur le serveur et interrogent la base directement, sans API HTTP intermédiaire. Les identifiants de connexion et le SQL ne sont jamais envoyés au navigateur.
+
+Trois d'entre eux sont marqués `"use client"`, parce qu'ils ont besoin d'un état local ou de gestionnaires d'événements : `DashboardClient`, `SectorManage` et `Simulation`. Ils ne font aucune requête — les données leur arrivent en props depuis `page.tsx`.
 
 ### `app/page.tsx`
 
-Point d'entrée. Assemble les deux vues, séparées par des en-têtes.
+Point d'entrée. Exécute toutes les requêtes de la page — équipage, portes, zones de quarantaine, positions, secteurs et chambres — puis distribue les résultats en props. Centraliser les lectures ici permet aux composants clients de rester sans accès à la base.
+
+### `DashboardClient`
+
+En-tête du tableau de bord et bouton d'ouverture du module de simulation, dont il garde l'état ouvert ou fermé.
+
+| Prop | Type | Rôle |
+| --- | --- | --- |
+| `users` | `Users[]` | Équipage, transmis à `Simulation` |
+| `sectors` | `SectorOption[]` | Secteurs sélectionnables |
+| `rooms` | `RoomOption[]` | Chambres sélectionnables |
+
+### `Simulation`
+
+Banc d'essai du système, en deux formulaires. Le premier change le statut sanitaire d'un agent, le second simule le badgeage d'un portail NFC.
+
+C'est lui qui applique les règles d'accès aux zones de quarantaine, et qui alimente `gate_logs` en l'absence de vrais capteurs.
+
+Il ne conserve en état que **l'identifiant** de l'agent sélectionné, jamais l'objet complet. L'objet est redérivé de la prop `users` à chaque rendu, donc il reflète toujours la base après une revalidation. Stocker la copie conduisait à tester un statut périmé.
 
 ### `HeaderSection`
 
@@ -210,23 +267,33 @@ En-tête de section réutilisable.
 
 ### `List`
 
-Vue de triage médical. Charge l'équipage, le répartit en deux groupes et affiche une carte par personne.
+Vue de triage médical. Charge l'équipage et le répartit en quatre groupes, chacun dans son panneau, avec un code couleur par bordure gauche : malades, quarantaine, cas contacts, puis le reste de l'équipage.
 
-Le premier groupe rassemble les patients à traiter — statut `QUARANTINE` ou `SICK` — et s'affiche avec une bordure gauche rouge. Le second rassemble les cas contacts, en jaune.
-
-Chaque carte élément de la liste un bouton « Patient traité » qui déclenche `marquerTraite` et repasse la personne en `NORMAL`.
+Chaque ligne porte un bouton qui déclenche `marquerTraite`. Le bouton passe par un `<form action={...}>` plutôt qu'un `onClick`, ce qui permet au composant de rester un Server Component et de fonctionner même sans JavaScript côté client.
 
 ### `SectorManage`
 
-Vue de localisation. Charge la liste des portes et délègue l'affichage de chaque secteur à `Sector`.
+Vue de localisation. Affiche la grille des secteurs et celle des zones de quarantaine, et garde en état le secteur sélectionné pour basculer entre la grille et la vue détaillée.
+
+| Prop | Type | Rôle |
+| --- | --- | --- |
+| `gates` | `Gates[]` | Portes des secteurs ordinaires |
+| `quarantine` | `Gates[]` | Portes des zones de quarantaine |
+| `positions` | `Position[]` | Équipage localisé |
+
+### `SectorSoft`
+
+Vignette d'un secteur dans la grille. Affiche le code, le nom, l'effectif présent, et signale par une bordure rouge et une icône d'alerte la présence d'un malade. Cliquable pour ouvrir la vue détaillée.
 
 ### `Sector`
 
-Carte d'un secteur : son nom, sa porte d'accès, son effectif présent et le détail de ses occupants.
+Vue détaillée d'un secteur : son nom, sa porte d'accès, son effectif et le détail de ses occupants.
 
-|  Prop  |    Type |           Rôle                      |
-|  ---   |   ---   |            ---                      |
+| Prop | Type | Rôle |
+| --- | --- | --- |
 | `gate` | `Gates` | La porte qui donne accès au secteur |
+| `positions` | `Position[]` | Équipage localisé, filtré sur ce secteur |
+| `setSelectedGate` | `(gate: Gates \| null) => void` | Retour à la grille |
 
 Chaque occupant est présenté avec son rôle à bord, sa chambre, un badge coloré selon son état de santé, et, s'il est atteint, sa pathologie et son score de criticité.
 
@@ -234,19 +301,34 @@ Chaque occupant est présenté avec son rôle à bord, sa chambre, un badge colo
 
 ### Détection des cas contacts
 
-Un membre d'équipage est considéré comme cas contact dans deux situations.
+Un membre d'équipage devient cas contact dans deux situations, traitées différemment.
 
+**Présence dans un secteur contaminé** — c'est la règle principale, et la seule qui **écrit en base**. Dès qu'un malade se trouve dans un secteur, tous les occupants encore `NORMAL` passent en `CONTACT`.
 
-**Voisinage de chambre** — il loge dans une chambre adjacente à celle d'un patient, c'est-à-dire dont le numéro diffère de 1. La promiscuité des quartiers d'habitation justifie cette présomption d'exposition.
+Elle est appliquée par `propagerContact` à deux moments précis, tous deux côté serveur :
 
-Les patients eux-mêmes sont exclus de ce second test : un malade voisin d'un autre malade est déjà pris en charge dans la liste des patients, et apparaîtrait sinon dans les deux listes.
+- quand un agent est déclaré `SICK`, ses colocataires de secteur sont contaminés ;
+- quand un agent entre dans un secteur où se trouve déjà un malade.
 
-Cette règle est amenée à s'enrichir : le partage d'un même secteur au même moment, déductible de `gate_logs`, est le prolongement naturel du modèle.
+Le choix de persister plutôt que de déduire à l'affichage est délibéré : le statut `CONTACT` est une décision sanitaire, elle doit laisser une trace consultable et survivre au rechargement. La contrepartie est qu'un cas contact le reste après la guérison du malade — la levée du statut est un acte volontaire, passant par le bouton de la liste de triage.
 
-**Passage dans une même salle** — On vérifie si le citoyen a était en contact avec un malade depuis que ce dernier a était diagnostiqué.
+Ce traitement n'a **jamais lieu pendant le rendu** d'un composant. Une écriture déclenchée au rendu provoquerait une boucle : `revalidatePath` relance le rendu, qui relance l'écriture.
+
+**Voisinage de chambre** — règle secondaire, **déduite à l'affichage** dans `List` et jamais écrite. Un membre logé dans une chambre dont le numéro diffère de 1 de celle d'un patient est présumé exposé, la promiscuité des quartiers d'habitation le justifiant.
+
+Les patients eux-mêmes sont exclus de ce test : un malade voisin d'un autre malade figure déjà dans la liste des patients, et apparaîtrait sinon dans les deux.
 
 ### Localisation
 
 La position courante d'un membre est le secteur de la dernière porte qu'il a franchie avec un accès accordé.
 
 Le modèle considère que tout déplacement est journalisé comme une **entrée** dans le secteur de destination. Sortir d'un secteur revient nécessairement à entrer dans un autre, puisque les secteurs du vaisseau sont tous reliés par des portes.
+
+### Contrôle d'accès aux zones de quarantaine
+
+Les portes marquées `is_Q` gardent les zones d'isolement. Deux règles symétriques s'y appliquent, appliquées par `Simulation` au moment du badgeage :
+
+- un agent en `QUARANTINE` ne peut franchir **que** les portes des zones de quarantaine ;
+- un agent qui n'est pas en `QUARANTINE` ne peut **pas** y entrer.
+
+Un refus n'est pas silencieux : il est écrit dans `gate_logs` avec `access_granted = 0`. La tentative reste donc consultable, tout en étant ignorée par `getPositions`, qui ne retient que les passages accordés. Une personne bloquée à une porte ne change pas de secteur.

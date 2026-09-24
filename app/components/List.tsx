@@ -3,7 +3,7 @@ import { query } from "@/lib/db";
 import type { Users } from "../type";
 
 export const List = async () => {
-  const clients  =  await query<Users>("SElECT * FROM users ");
+  const clients  =  await query<Users>("SELECT * FROM users");
 
   const patients = clients.filter((c) => c.health_status === "SICK");
   const quarantined = clients.filter((c) => c.health_status === "QUARANTINE");
